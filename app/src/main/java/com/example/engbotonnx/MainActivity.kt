@@ -7,6 +7,7 @@ import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlin.math.sqrt
 
 class MainActivity : AppCompatActivity() {
 
@@ -19,7 +20,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        recyclerView = findViewById(R.id.recyclerViewChat) // ← แก้ตรงนี้
+        recyclerView = findViewById(R.id.recyclerViewChat)
         val editTextQuestion = findViewById<EditText>(R.id.editTextQuestion)
         val buttonSend = findViewById<Button>(R.id.buttonSend)
 
@@ -43,29 +44,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getBestResponse(userText: String): String {
-        val inputEmbedding = onnxHelper.getEmbedding(userText).toList()
-        var bestSimilarity = -1.0
-        var bestResponse = "🤖 ฉันไม่เข้าใจคำถามนี้"
+        val inputEmbedding = onnxHelper.getEmbedding(userText).map { it.toDouble() }
+        val similarities = mutableListOf<Pair<Int, Double>>()
 
         for ((index, responseEmbedding) in onnxHelper.embeddedVectors.withIndex()) {
-            val dotProduct = inputEmbedding.zip(responseEmbedding.toList()) { a, b ->
-                a.toDouble() * b.toDouble()
-            }.sum()
+            val responseEmbeddingDoubles = responseEmbedding.map { it.toDouble() }
 
-            val magnitudeA = inputEmbedding.sumOf { it.toDouble() * it.toDouble() }
-            val magnitudeB = responseEmbedding.sumOf { it.toDouble() * it.toDouble() }
+            val dotProduct = inputEmbedding.zip(responseEmbeddingDoubles) { a, b -> a * b }.sum()
+            val magnitudeA = sqrt(inputEmbedding.map { it * it }.sum())
+            val magnitudeB = sqrt(responseEmbeddingDoubles.map { it * it }.sum())
 
             if (magnitudeA != 0.0 && magnitudeB != 0.0) {
-                val similarity = dotProduct / (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB))
-                Log.d("SIMILARITY", "[$index] $similarity")
-
-                if (similarity > bestSimilarity) {
-                    bestSimilarity = similarity
-                    bestResponse = onnxHelper.embeddedResponses[index]
-                }
+                val similarity = dotProduct / (magnitudeA * magnitudeB)
+                similarities.add(index to similarity)
             }
         }
 
-        return bestResponse
+        val topN = 3
+        val topResponses = similarities.sortedByDescending { it.second }.take(topN)
+
+        topResponses.forEach { Log.d("TOP_SIMILAR", "Index: ${it.first}, Sim: ${it.second}") }
+
+        val randomIndex = topResponses.random().first
+        return onnxHelper.embeddedResponses[randomIndex]
     }
+
 }

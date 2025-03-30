@@ -1,61 +1,67 @@
 package com.example.engbotonnx
 
 import android.content.Context
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import ai.onnxruntime.*
-import java.nio.LongBuffer
+import java.io.InputStreamReader
 import kotlin.math.sqrt
 
 class OnnxHelper(private val context: Context) {
 
-    val tokenizer = Tokenizer.loadFromAssets(context, "tokenizer.json")
+    private val env: OrtEnvironment
+    private val tokenizer: Tokenizer
     private val session: OrtSession
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
-    private val embedItems: List<EmbedItem>
-
-    val embeddedVectors: List<FloatArray>
     val embeddedResponses: List<String>
+    val embeddedVectors = mutableListOf<FloatArray>()
 
     init {
+        env = OrtEnvironment.getEnvironment()
         val modelBytes = context.assets.open("model.onnx").readBytes()
         session = env.createSession(modelBytes)
 
-        val json = context.assets.open("embed_vectors.json").bufferedReader().use { it.readText() }
-        val type = object : TypeToken<List<EmbedItem>>() {}.type
-        embedItems = Gson().fromJson(json, type)
-
-        embeddedVectors = embedItems.map { it.embedding.toFloatArray() }
-        embeddedResponses = embedItems.map { it.response }
+        tokenizer = Tokenizer.loadFromAssets(context, "tokenizer.json")
+        embeddedResponses = loadJsonList("embed_responses.json")
+        loadVectorsFromChunks("vector_chunks.json")
     }
 
-    fun getEmbedding(inputText: String): FloatArray {
-        val tokens = tokenizer.encode(inputText)
-        val inputIds = tokens
-        val attentionMask = LongArray(inputIds.size) { 1 }
-        return runModel(inputIds, attentionMask)
+    private fun loadVectorsFromChunks(indexFile: String) {
+        val chunkFiles = loadJsonList(indexFile)
+        for (file in chunkFiles) {
+            val stream = context.assets.open(file)
+            val reader = InputStreamReader(stream)
+            val vectors: List<List<Float>> = Gson().fromJson(
+                reader, object : TypeToken<List<List<Float>>>() {}.type
+            )
+            embeddedVectors.addAll(vectors.map { it.toFloatArray() })
+        }
     }
 
-    private fun runModel(inputIds: LongArray, attentionMask: LongArray): FloatArray {
-        val shape = longArrayOf(1, inputIds.size.toLong())
+    private fun loadJsonList(fileName: String): List<String> {
+        val stream = context.assets.open(fileName)
+        val reader = InputStreamReader(stream)
+        return Gson().fromJson(reader, object : TypeToken<List<String>>() {}.type)
+    }
 
-        val inputIdsTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(inputIds), shape)
-        val attentionMaskTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(attentionMask), shape)
+    fun getEmbedding(text: String): FloatArray {
+        val tokenIds = tokenizer.encode(text)
+        val attentionMask = LongArray(tokenIds.size) { 1L }
 
         val inputs = mapOf(
-            "input_ids" to inputIdsTensor,
-            "attention_mask" to attentionMaskTensor
+            "input_ids" to OnnxTensor.createTensor(env, arrayOf(tokenIds)),
+            "attention_mask" to OnnxTensor.createTensor(env, arrayOf(attentionMask))
         )
 
-        val output = session.run(inputs)
-        val raw = output[0].value
+        val results = session.run(inputs)
+        val output = results[0].value as Array<FloatArray>
+        results.close()
 
-        try {
-            @Suppress("UNCHECKED_CAST")
-            val result = raw as Array<Array<FloatArray>>
-            return result[0][0]
-        } catch (e: Exception) {
-            throw IllegalStateException("Model output is not Float[][][] (actual: ${raw?.javaClass})", e)
-        }
+        return normalize(output[0])
+    }
+
+    private fun normalize(vector: FloatArray): FloatArray {
+        val norm = sqrt(vector.sumOf { (it * it).toDouble() }).toFloat()
+        return if (norm != 0f) vector.map { it / norm }.toFloatArray() else vector
     }
 }
