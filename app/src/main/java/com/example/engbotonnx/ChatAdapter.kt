@@ -6,27 +6,27 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
-class ChatAdapter(private val messages: MutableList<ChatMessage> = mutableListOf()) :
-    RecyclerView.Adapter<ChatAdapter.ChatViewHolder>() {
+class ChatAdapter(private val messages: List<ChatMessage>) : RecyclerView.Adapter<ChatAdapter.ChatViewHolder>() {
 
-    class ChatViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val textMessage: TextView = view.findViewById(android.R.id.text1)
+    inner class ChatViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val textView: TextView = itemView.findViewById(R.id.textViewMessage)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ChatViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(android.R.layout.simple_list_item_1, parent, false)
+        val layout = if (viewType == 0) R.layout.item_user else R.layout.item_bot
+        val view = LayoutInflater.from(parent.context).inflate(layout, parent, false)
         return ChatViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: ChatViewHolder, position: Int) {
-        val message = messages[position]
-        holder.textMessage.text = if (message.isUser) "🧑‍💻 ${message.text}" else "🤖 ${message.text}"
+        holder.textView.text = messages[position].text
     }
 
-    override fun getItemCount(): Int = messages.size
+    override fun getItemCount(): Int {
+        return messages.size
+    }
 
-    fun addMessage(message: ChatMessage) {
-        messages.add(message)
-        notifyItemInserted(messages.size - 1)
+    override fun getItemViewType(position: Int): Int {
+        return if (messages[position].isUser) 0 else 1
     }
 }

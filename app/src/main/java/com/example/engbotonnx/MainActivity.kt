@@ -7,66 +7,83 @@ import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlin.math.sqrt
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Body
+import retrofit2.http.Headers
+import retrofit2.http.POST
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: ChatAdapter
     private val messages = mutableListOf<ChatMessage>()
-    private lateinit var onnxHelper: OnnxHelper
+    private lateinit var editTextQuestion: EditText
+    private lateinit var buttonSend: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         recyclerView = findViewById(R.id.recyclerViewChat)
-        val editTextQuestion = findViewById<EditText>(R.id.editTextQuestion)
-        val buttonSend = findViewById<Button>(R.id.buttonSend)
+        editTextQuestion = findViewById(R.id.editTextQuestion)
+        buttonSend = findViewById(R.id.buttonSend)
 
         adapter = ChatAdapter(messages)
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
 
-        onnxHelper = OnnxHelper(this)
-
         buttonSend.setOnClickListener {
-            val userText = editTextQuestion.text.toString()
-            if (userText.isNotBlank()) {
-                messages.add(ChatMessage(userText, isUser = true))
-                val botResponse = getBestResponse(userText)
-                messages.add(ChatMessage(botResponse, isUser = false))
-                adapter.notifyItemRangeInserted(messages.size - 2, 2)
-                recyclerView.scrollToPosition(messages.size - 1)
+            val userText = editTextQuestion.text.toString().trim()
+            if (userText.isNotEmpty()) {
+                addMessage(ChatMessage(userText, isUser = true))
+                sendToApi(userText)
                 editTextQuestion.text.clear()
             }
         }
     }
 
-    private fun getBestResponse(userText: String): String {
-        val inputEmbedding = onnxHelper.getEmbedding(userText).map { it.toDouble() }
-        val similarities = mutableListOf<Pair<Int, Double>>()
-
-        for ((index, responseEmbedding) in onnxHelper.embeddedVectors.withIndex()) {
-            val responseEmbeddingDoubles = responseEmbedding.map { it.toDouble() }
-
-            val dotProduct = inputEmbedding.zip(responseEmbeddingDoubles) { a, b -> a * b }.sum()
-            val magnitudeA = sqrt(inputEmbedding.map { it * it }.sum())
-            val magnitudeB = sqrt(responseEmbeddingDoubles.map { it * it }.sum())
-
-            if (magnitudeA != 0.0 && magnitudeB != 0.0) {
-                val similarity = dotProduct / (magnitudeA * magnitudeB)
-                similarities.add(index to similarity)
-            }
-        }
-
-        val topN = 3
-        val topResponses = similarities.sortedByDescending { it.second }.take(topN)
-
-        topResponses.forEach { Log.d("TOP_SIMILAR", "Index: ${it.first}, Sim: ${it.second}") }
-
-        val randomIndex = topResponses.random().first
-        return onnxHelper.embeddedResponses[randomIndex]
+    private fun addMessage(message: ChatMessage) {
+        messages.add(message)
+        adapter.notifyItemInserted(messages.size - 1)
+        recyclerView.scrollToPosition(messages.size - 1)
     }
 
+    private fun sendToApi(userText: String) {
+        val retrofit = Retrofit.Builder()
+            .baseUrl("http://10.0.2.2:5000")
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+
+        val api = retrofit.create(ChatApi::class.java)
+        val request = MessageRequest(userText)
+
+        api.sendMessage(request).enqueue(object : Callback<MessageResponse> {
+            override fun onResponse(call: Call<MessageResponse>, response: Response<MessageResponse>) {
+                if (response.isSuccessful && response.body() != null) {
+                    val reply = response.body()!!.response
+                    addMessage(ChatMessage(reply, isUser = false))
+                } else {
+                    addMessage(ChatMessage("เกิดข้อผิดพลาดจากเซิร์ฟเวอร์", isUser = false))
+                }
+            }
+
+            override fun onFailure(call: Call<MessageResponse>, t: Throwable) {
+                addMessage(ChatMessage("ไม่สามารถเชื่อมต่อ API ได้: ${t.message}", isUser = false))
+            }
+        })
+    }
+}
+
+// -------- Retrofit API ด้านล่าง --------
+data class MessageRequest(val message: String)
+data class MessageResponse(val response: String, val similarity: Float)
+
+interface ChatApi {
+    @Headers("Content-Type: application/json")
+    @POST("/engbot")
+    fun sendMessage(@Body request: MessageRequest): Call<MessageResponse>
 }

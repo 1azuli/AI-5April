@@ -2,21 +2,14 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:gravity="end"
     android:orientation="horizontal"
-    android:padding="8dp"
-    android:windowSoftInputMode="adjustResize">
+    android:padding="8dp">
 
     <TextView
-        android:id="@+id/textUser"
+        android:id="@+id/textViewMessage"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:padding="12dp"
-        android:textColor="#000000"
+        android:text="ข้อความจากผู้ใช้"
         android:textSize="16sp"
-        android:layout_marginStart="32dp"
-        android:layout_gravity="end"
-        android:maxWidth="280dp"
-        android:background="@drawable/bg_user_message"
-        android:elevation="2dp" />
+        android:textColor="@android:color/black"/>
 </LinearLayout>
